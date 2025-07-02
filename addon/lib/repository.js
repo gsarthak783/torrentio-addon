@@ -67,6 +67,18 @@ File.belongsTo(Torrent, { foreignKey: 'infoHash', constraints: false });
 File.hasMany(Subtitle, { foreignKey: 'fileId', constraints: false });
 Subtitle.belongsTo(File, { foreignKey: 'fileId', constraints: false });
 
+(async () => {
+  try {
+    await database.authenticate();
+    console.log("✅ Connected to PostgreSQL");
+
+    await database.sync({ alter: true }); // auto-create tables if missing
+    console.log("✅ Tables created or updated");
+  } catch (error) {
+    console.error("❌ Sequelize DB connection error:", error);
+  }
+})();
+
 export function getTorrent(infoHash) {
   return Torrent.findOne({ where: { infoHash: infoHash } });
 }
