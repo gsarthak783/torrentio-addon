@@ -1,0 +1,331 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebTorrent Streaming Demo</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #f5f5f5;
+        }
+        .container {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        h1 {
+            color: #333;
+            margin-bottom: 20px;
+        }
+        .input-group {
+            margin-bottom: 20px;
+        }
+        label {
+            display: block;
+            margin-bottom: 5px;
+            font-weight: bold;
+            color: #555;
+        }
+        input[type="text"] {
+            width: 100%;
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            box-sizing: border-box;
+        }
+        button {
+            background-color: #4CAF50;
+            color: white;
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        button:hover {
+            background-color: #45a049;
+        }
+        button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+        .status {
+            margin-top: 20px;
+            padding: 10px;
+            border-radius: 4px;
+            display: none;
+        }
+        .status.success {
+            background-color: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        .status.error {
+            background-color: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        .status.info {
+            background-color: #d1ecf1;
+            color: #0c5460;
+            border: 1px solid #bee5eb;
+        }
+        video {
+            width: 100%;
+            margin-top: 20px;
+            border-radius: 4px;
+            background: #000;
+        }
+        .file-list {
+            margin-top: 20px;
+        }
+        .file-item {
+            padding: 10px;
+            background: #f8f9fa;
+            margin-bottom: 5px;
+            border-radius: 4px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .file-name {
+            flex-grow: 1;
+        }
+        .file-size {
+            color: #666;
+            margin-left: 10px;
+        }
+        .stream-btn {
+            background-color: #2196F3;
+            padding: 5px 10px;
+            font-size: 14px;
+        }
+        .stats {
+            margin-top: 20px;
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 10px;
+        }
+        .stat-item {
+            background: #f8f9fa;
+            padding: 10px;
+            border-radius: 4px;
+            text-align: center;
+        }
+        .stat-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #333;
+        }
+        .stat-label {
+            font-size: 12px;
+            color: #666;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎬 WebTorrent Streaming Demo</h1>
+        
+        <div class="input-group">
+            <label for="magnetInput">Magnet Link or Info Hash:</label>
+            <input type="text" id="magnetInput" 
+                   placeholder="Enter magnet link or info hash (e.g., 08ada5a7a6183aae1e09d831df6748d566095a10)">
+        </div>
+        
+        <button onclick="addTorrent()">Add Torrent</button>
+        <button onclick="getTorrentioMagnet()" style="background-color: #FF6E00;">Get from Torrentio</button>
+        
+        <div id="status" class="status"></div>
+        
+        <video id="videoPlayer" controls style="display: none;"></video>
+        
+        <div id="fileList" class="file-list" style="display: none;">
+            <h3>Files in Torrent:</h3>
+            <div id="files"></div>
+        </div>
+        
+        <div id="stats" class="stats" style="display: none;"></div>
+    </div>
+
+    <script>
+        const WEBTORRENT_URL = 'http://localhost:3000';
+        const TORRENTIO_URL = 'http://localhost:7000';
+        let currentInfoHash = null;
+        let statsInterval = null;
+
+        function showStatus(message, type = 'info') {
+            const status = document.getElementById('status');
+            status.textContent = message;
+            status.className = `status ${type}`;
+            status.style.display = 'block';
+        }
+
+        function formatBytes(bytes) {
+            if (bytes === 0) return '0 Bytes';
+            const k = 1024;
+            const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+            const i = Math.floor(Math.log(bytes) / Math.log(k));
+            return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+        }
+
+        function formatSpeed(bytesPerSecond) {
+            return formatBytes(bytesPerSecond) + '/s';
+        }
+
+        async function getTorrentioMagnet() {
+            const input = document.getElementById('magnetInput').value.trim();
+            if (!input) {
+                showStatus('Please enter an info hash', 'error');
+                return;
+            }
+
+            // Extract info hash if it's already a magnet link
+            let infoHash = input;
+            if (input.startsWith('magnet:')) {
+                const match = input.match(/btih:([a-fA-F0-9]{40})/);
+                if (match) {
+                    infoHash = match[1];
+                }
+            }
+
+            showStatus('Getting magnet link from Torrentio...', 'info');
+
+            try {
+                const response = await fetch(`${TORRENTIO_URL}/api/torrent/${infoHash}/magnet`);
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.error || 'Failed to get magnet link');
+                }
+
+                document.getElementById('magnetInput').value = data.magnetLink;
+                showStatus('Got magnet link! Click "Add Torrent" to start streaming.', 'success');
+            } catch (error) {
+                showStatus(`Error: ${error.message}`, 'error');
+            }
+        }
+
+        async function addTorrent() {
+            const input = document.getElementById('magnetInput').value.trim();
+            if (!input) {
+                showStatus('Please enter a magnet link or info hash', 'error');
+                return;
+            }
+
+            let magnet = input;
+            
+            // If it's just an info hash, convert to magnet
+            if (!input.startsWith('magnet:') && input.match(/^[a-fA-F0-9]{40}$/)) {
+                magnet = `magnet:?xt=urn:btih:${input}`;
+            }
+
+            showStatus('Adding torrent...', 'info');
+
+            try {
+                const response = await fetch(`${WEBTORRENT_URL}/add`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ magnet })
+                });
+
+                const data = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(data.error || 'Failed to add torrent');
+                }
+
+                currentInfoHash = data.infoHash;
+                showStatus(`Torrent added: ${data.name}`, 'success');
+
+                // Display files
+                displayFiles(data.allFiles);
+
+                // Auto-play video if found
+                if (data.videoFile) {
+                    playVideo(data.videoFile.streamUrl);
+                }
+
+                // Start updating stats
+                startStatsUpdate();
+
+            } catch (error) {
+                showStatus(`Error: ${error.message}`, 'error');
+            }
+        }
+
+        function displayFiles(files) {
+            const fileList = document.getElementById('fileList');
+            const filesContainer = document.getElementById('files');
+            
+            filesContainer.innerHTML = files.map(file => `
+                <div class="file-item">
+                    <span class="file-name">${file.name}</span>
+                    <span class="file-size">${formatBytes(file.size)}</span>
+                    <button class="stream-btn" onclick="playVideo('${file.streamUrl}')">Stream</button>
+                </div>
+            `).join('');
+            
+            fileList.style.display = 'block';
+        }
+
+        function playVideo(streamUrl) {
+            const video = document.getElementById('videoPlayer');
+            video.src = streamUrl;
+            video.style.display = 'block';
+            video.play().catch(e => {
+                showStatus('Click play to start streaming', 'info');
+            });
+        }
+
+        async function updateStats() {
+            if (!currentInfoHash) return;
+
+            try {
+                const response = await fetch(`${WEBTORRENT_URL}/torrents`);
+                const data = await response.json();
+
+                const torrent = data.torrents.find(t => t.infoHash === currentInfoHash);
+                if (!torrent) return;
+
+                const statsDiv = document.getElementById('stats');
+                statsDiv.innerHTML = `
+                    <div class="stat-item">
+                        <div class="stat-value">${(torrent.progress * 100).toFixed(1)}%</div>
+                        <div class="stat-label">Progress</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value">${formatSpeed(torrent.downloadSpeed)}</div>
+                        <div class="stat-label">Download</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value">${formatSpeed(torrent.uploadSpeed)}</div>
+                        <div class="stat-label">Upload</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value">${torrent.peers}</div>
+                        <div class="stat-label">Peers</div>
+                    </div>
+                `;
+                statsDiv.style.display = 'grid';
+            } catch (error) {
+                console.error('Failed to update stats:', error);
+            }
+        }
+
+        function startStatsUpdate() {
+            if (statsInterval) clearInterval(statsInterval);
+            updateStats();
+            statsInterval = setInterval(updateStats, 1000);
+        }
+
+        // Example magnet link for testing
+        document.getElementById('magnetInput').value = '08ada5a7a6183aae1e09d831df6748d566095a10';
+    </script>
+</body>
+</html> 
