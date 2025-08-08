@@ -11,6 +11,9 @@ app.use(express.json());
 
 // Helper function to find video files
 function findVideoFile(torrent) {
+  if (!torrent || !torrent.files || !Array.isArray(torrent.files)) {
+    return null;
+  }
   return torrent.files.find(file => {
     const ext = file.name.split('.').pop().toLowerCase();
     return ['mp4', 'mkv', 'avi', 'mov', 'webm', 'flv', 'wmv', 'mpg', 'mpeg'].includes(ext);
@@ -28,7 +31,7 @@ app.get("/info", (req, res) => {
   // Check if torrent already exists
   let torrent = client.get(magnet);
   
-  if (torrent) {
+  if (torrent && torrent.files && torrent.files.length > 0) {
     // Return existing torrent info
     const files = torrent.files.map((file, index) => ({
       index,
@@ -52,7 +55,7 @@ app.get("/info", (req, res) => {
     });
   }
 
-  // Add new torrent
+  // Add new torrent with callback
   client.add(magnet, {
     announce: [
       "udp://tracker.opentrackr.org:1337/announce",
@@ -62,7 +65,7 @@ app.get("/info", (req, res) => {
       "udp://tracker.tiny-vps.com:6969/announce"
     ]
   }, (torrent) => {
-    // Get torrent info
+    // This callback is called when torrent is ready
     const files = torrent.files.map((file, index) => ({
       index,
       name: file.name,
@@ -93,6 +96,10 @@ app.get("/stream/:infoHash/:fileIndex", (req, res) => {
   
   if (!torrent) {
     return res.status(404).json({ error: "Torrent not found" });
+  }
+
+  if (!torrent.files || torrent.files.length === 0) {
+    return res.status(404).json({ error: "Torrent files not loaded yet" });
   }
 
   const file = torrent.files[parseInt(fileIndex)];
@@ -158,42 +165,42 @@ app.post("/add", (req, res) => {
     return res.status(400).json({ error: "Invalid magnet link" });
   }
 
-  // Check if torrent already exists
-  let torrent = client.get(magnet);
+  // Check if torrent already exists and is ready
+  let existingTorrent = client.get(magnet);
   
-  if (torrent) {
+  if (existingTorrent && existingTorrent.files && existingTorrent.files.length > 0) {
     // Return existing torrent
-    const videoFile = findVideoFile(torrent);
+    const videoFile = findVideoFile(existingTorrent);
     
     if (!videoFile) {
       return res.status(404).json({ 
         error: "No video file found",
-        files: torrent.files.map(f => f.name)
+        files: existingTorrent.files.map(f => f.name)
       });
     }
 
-    const fileIndex = torrent.files.indexOf(videoFile);
-    const streamUrl = `http://localhost:${PORT}/stream/${torrent.infoHash}/${fileIndex}`;
+    const fileIndex = existingTorrent.files.indexOf(videoFile);
+    const streamUrl = `http://localhost:${PORT}/stream/${existingTorrent.infoHash}/${fileIndex}`;
 
     return res.json({
-      infoHash: torrent.infoHash,
-      name: torrent.name,
+      infoHash: existingTorrent.infoHash,
+      name: existingTorrent.name,
       videoFile: {
         index: fileIndex,
         name: videoFile.name,
         size: videoFile.length,
         streamUrl: streamUrl
       },
-      allFiles: torrent.files.map((file, index) => ({
+      allFiles: existingTorrent.files.map((file, index) => ({
         index,
         name: file.name,
         size: file.length,
-        streamUrl: `http://localhost:${PORT}/stream/${torrent.infoHash}/${index}`
+        streamUrl: `http://localhost:${PORT}/stream/${existingTorrent.infoHash}/${index}`
       }))
     });
   }
 
-  // Add new torrent
+  // Add new torrent with callback
   client.add(magnet, {
     announce: [
       "udp://tracker.opentrackr.org:1337/announce",
@@ -203,7 +210,7 @@ app.post("/add", (req, res) => {
       "udp://tracker.tiny-vps.com:6969/announce"
     ]
   }, (torrent) => {
-    // Find video file
+    // This callback is called when torrent is ready with metadata
     const videoFile = findVideoFile(torrent);
     
     if (!videoFile) {
@@ -243,21 +250,21 @@ app.get("/add", (req, res) => {
     return res.status(400).json({ error: "Invalid magnet link. Use ?magnet=..." });
   }
 
-  // Check if torrent already exists
-  let torrent = client.get(magnet);
+  // Check if torrent already exists and is ready
+  let existingTorrent = client.get(magnet);
   
-  if (torrent) {
+  if (existingTorrent && existingTorrent.files && existingTorrent.files.length > 0) {
     // Return existing torrent info
-    const videoFile = findVideoFile(torrent);
-    const fileIndex = videoFile ? torrent.files.indexOf(videoFile) : 0;
-    const file = videoFile || torrent.files[0];
+    const videoFile = findVideoFile(existingTorrent);
+    const fileIndex = videoFile ? existingTorrent.files.indexOf(videoFile) : 0;
+    const file = videoFile || existingTorrent.files[0];
 
     if (file) {
-      const streamUrl = `http://localhost:${PORT}/stream/${torrent.infoHash}/${fileIndex}`;
+      const streamUrl = `http://localhost:${PORT}/stream/${existingTorrent.infoHash}/${fileIndex}`;
       return res.json({
         success: true,
-        infoHash: torrent.infoHash,
-        name: torrent.name,
+        infoHash: existingTorrent.infoHash,
+        name: existingTorrent.name,
         file: {
           index: fileIndex,
           name: file.name,
@@ -265,12 +272,10 @@ app.get("/add", (req, res) => {
           streamUrl: streamUrl
         }
       });
-    } else {
-      return res.status(404).json({ error: "No files found in torrent" });
     }
   }
 
-  // Add new torrent
+  // Add new torrent with callback
   client.add(magnet, {
     announce: [
       "udp://tracker.opentrackr.org:1337/announce",
@@ -280,7 +285,7 @@ app.get("/add", (req, res) => {
       "udp://tracker.tiny-vps.com:6969/announce"
     ]
   }, (torrent) => {
-    // Find video file
+    // This callback is called when torrent is ready
     const videoFile = findVideoFile(torrent);
     const fileIndex = videoFile ? torrent.files.indexOf(videoFile) : 0;
     const file = videoFile || torrent.files[0];
@@ -331,7 +336,8 @@ app.get("/torrents", (req, res) => {
     downloaded: torrent.downloaded || 0,
     uploaded: torrent.uploaded || 0,
     length: torrent.length || 0,
-    ready: torrent.ready || false
+    ready: torrent.ready || false,
+    files: torrent.files ? torrent.files.length : 0
   }));
 
   res.json({ torrents });
