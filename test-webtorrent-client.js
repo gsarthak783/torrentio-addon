@@ -4,7 +4,7 @@
 // This demonstrates how to use Torrentio API to get magnet links
 // and then stream them using the WebTorrent server
 
-const http = require('http');
+import http from 'http';
 
 const TORRENTIO_URL = 'http://localhost:7000';
 const WEBTORRENT_URL = 'http://localhost:3000';

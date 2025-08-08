@@ -1,5 +1,5 @@
 // Simple test for WebTorrent server
-const http = require('http');
+import http from 'http';
 
 const testMagnet = 'magnet:?xt=urn:btih:08ada5a7a6183aae1e09d831df6748d566095a10';
 

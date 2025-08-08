@@ -3,8 +3,8 @@
 // Test script for the new Torrentio API endpoints
 // Usage: node test-api.js [infoHash] [debridApiKey]
 
-const http = require('http');
-const https = require('https');
+import http from 'http';
+import https from 'https';
 
 const args = process.argv.slice(2);
 const infoHash = args[0] || '08ada5a7a6183aae1e09d831df6748d566095a10'; // Example torrent hash
@@ -96,9 +96,8 @@ async function testStreamsEndpoint() {
       console.log();
     } else {
       console.log('❌ Error:', response.data.error);
-      if (response.data.error === 'Torrent not found') {
-        console.log('   Note: This torrent does not exist in the Torrentio database.');
-        console.log('   The streams endpoint requires torrents to be indexed in the database.\n');
+      if (response.data.error === 'Database not configured') {
+        console.log('   This endpoint requires a PostgreSQL database to be configured.\n');
       }
     }
   } catch (error) {
