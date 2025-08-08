@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Simple Video List Demo</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #f5f5f5;
+        }
+        
+        .video-list {
+            background: white;
+            border-radius: 8px;
+            padding: 20px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+        }
+        
+        .video-item {
+            border-bottom: 1px solid #eee;
+            padding: 15px 0;
+        }
+        
+        .video-item:last-child {
+            border-bottom: none;
+        }
+        
+        .video-title {
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 10px;
+        }
+        
+        .play-button {
+            background: #4CAF50;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+        }
+        
+        .play-button:hover {
+            background: #45a049;
+        }
+        
+        .play-button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+        
+        .status {
+            margin-left: 10px;
+            font-size: 14px;
+            color: #666;
+        }
+        
+        #player {
+            margin-top: 20px;
+            background: black;
+            border-radius: 8px;
+            overflow: hidden;
+            display: none;
+        }
+        
+        video {
+            width: 100%;
+            height: auto;
+        }
+    </style>
+</head>
+<body>
+    <h1>My Video Library</h1>
+    
+    <div class="video-list">
+        <div id="videos"></div>
+    </div>
+    
+    <div id="player">
+        <video id="videoPlayer" controls></video>
+    </div>
+
+    <script>
+        // Your 5 videos with info hashes
+        const myVideos = [
+            {
+                title: "Sintel - Animated Short Film",
+                infoHash: "08ada5a7a6183aae1e09d831df6748d566095a10",
+                description: "A woman searches for her dragon"
+            },
+            {
+                title: "Big Buck Bunny",
+                infoHash: "dd8255ecdc7ca55fb0bbf81323d87062db1f6d1c",
+                description: "A giant rabbit's adventures"
+            },
+            {
+                title: "Tears of Steel",
+                infoHash: "6a9759bffd5c0af65319979fb7832189f4e3c700",
+                description: "Robots in Amsterdam"
+            },
+            {
+                title: "Cosmos Laundromat",
+                infoHash: "c9e15763f722f23e98a29decdfae341b98d53056",
+                description: "A sheep's cosmic journey"
+            },
+            {
+                title: "Example Video 5",
+                infoHash: "08ada5a7a6183aae1e09d831df6748d566095a10",
+                description: "Another test video"
+            }
+        ];
+
+        // Simple function to play video
+        async function playVideo(index) {
+            const video = myVideos[index];
+            const button = document.getElementById(`btn-${index}`);
+            const status = document.getElementById(`status-${index}`);
+            
+            // Update UI
+            button.disabled = true;
+            button.textContent = 'Loading...';
+            status.textContent = 'Getting stream...';
+            
+            try {
+                // Step 1: Get magnet link
+                const magnetResponse = await fetch(`http://localhost:7000/api/torrent/${video.infoHash}/magnet`);
+                const { magnetLink } = await magnetResponse.json();
+                
+                // Step 2: Get streaming URL
+                const streamResponse = await fetch('http://localhost:3000/add', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ magnet: magnetLink })
+                });
+                
+                const streamData = await streamResponse.json();
+                
+                if (streamData.videoFile) {
+                    // Play the video
+                    const player = document.getElementById('player');
+                    const videoElement = document.getElementById('videoPlayer');
+                    
+                    player.style.display = 'block';
+                    videoElement.src = streamData.videoFile.streamUrl;
+                    videoElement.play();
+                    
+                    status.textContent = '✓ Playing';
+                } else {
+                    throw new Error('No video file found');
+                }
+                
+            } catch (error) {
+                alert('Error: ' + error.message);
+                status.textContent = '✗ Error';
+            } finally {
+                button.disabled = false;
+                button.textContent = 'Play';
+            }
+        }
+
+        // Render the video list
+        function renderVideos() {
+            const container = document.getElementById('videos');
+            
+            myVideos.forEach((video, index) => {
+                const item = document.createElement('div');
+                item.className = 'video-item';
+                
+                item.innerHTML = `
+                    <div class="video-title">${video.title}</div>
+                    <div style="color: #666; margin-bottom: 10px;">${video.description}</div>
+                    <button id="btn-${index}" class="play-button" onclick="playVideo(${index})">
+                        Play
+                    </button>
+                    <span id="status-${index}" class="status"></span>
+                `;
+                
+                container.appendChild(item);
+            });
+        }
+
+        // Initialize
+        renderVideos();
+    </script>
+</body>
+</html> 

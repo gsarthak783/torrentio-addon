@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Video Streaming App</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background-color: #0f0f0f;
+            color: #fff;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        h1 {
+            text-align: center;
+            margin-bottom: 30px;
+            color: #fff;
+        }
+        
+        .video-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+        
+        .video-card {
+            background: #1a1a1a;
+            border-radius: 12px;
+            overflow: hidden;
+            transition: transform 0.2s;
+            cursor: pointer;
+        }
+        
+        .video-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        }
+        
+        .video-thumbnail {
+            width: 100%;
+            height: 180px;
+            background: #2a2a2a;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 48px;
+        }
+        
+        .video-info {
+            padding: 15px;
+        }
+        
+        .video-title {
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+        
+        .video-details {
+            font-size: 14px;
+            color: #999;
+            margin-bottom: 5px;
+        }
+        
+        .play-button {
+            background: #e50914;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: 600;
+            width: 100%;
+            margin-top: 10px;
+            transition: background 0.2s;
+        }
+        
+        .play-button:hover {
+            background: #f40612;
+        }
+        
+        .play-button:disabled {
+            background: #666;
+            cursor: not-allowed;
+        }
+        
+        /* Video Player Modal */
+        .player-modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.95);
+            z-index: 1000;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .player-modal.active {
+            display: flex;
+        }
+        
+        .player-container {
+            width: 90%;
+            max-width: 1000px;
+            background: #000;
+            border-radius: 12px;
+            overflow: hidden;
+        }
+        
+        .player-header {
+            background: #1a1a1a;
+            padding: 15px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .close-button {
+            background: none;
+            border: none;
+            color: #fff;
+            font-size: 24px;
+            cursor: pointer;
+        }
+        
+        video {
+            width: 100%;
+            height: auto;
+            background: #000;
+        }
+        
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: #999;
+        }
+        
+        .error {
+            background: #ff4444;
+            color: white;
+            padding: 10px;
+            border-radius: 6px;
+            margin-top: 10px;
+        }
+        
+        .status {
+            display: inline-block;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            margin-left: 10px;
+        }
+        
+        .status.ready {
+            background: #4CAF50;
+        }
+        
+        .status.loading {
+            background: #FF9800;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎬 Torrent Video Streaming</h1>
+        
+        <div class="video-grid" id="videoGrid">
+            <!-- Video cards will be generated here -->
+        </div>
+    </div>
+    
+    <!-- Video Player Modal -->
+    <div class="player-modal" id="playerModal">
+        <div class="player-container">
+            <div class="player-header">
+                <h3 id="playerTitle">Loading...</h3>
+                <button class="close-button" onclick="closePlayer()">✕</button>
+            </div>
+            <video id="videoPlayer" controls></video>
+            <div class="loading" id="loadingMessage">Preparing stream...</div>
+        </div>
+    </div>
+
+    <script>
+        // Configuration
+        const TORRENTIO_URL = 'http://localhost:7000';
+        const WEBTORRENT_URL = 'http://localhost:3000';
+        
+        // Sample videos with info hashes
+        const videos = [
+            {
+                title: "Sintel",
+                infoHash: "08ada5a7a6183aae1e09d831df6748d566095a10",
+                thumbnail: "🎬",
+                size: "129 MB",
+                description: "Open source animated short film"
+            },
+            {
+                title: "Big Buck Bunny",
+                infoHash: "dd8255ecdc7ca55fb0bbf81323d87062db1f6d1c",
+                thumbnail: "🐰",
+                size: "140 MB",
+                description: "Comedy animation about a giant rabbit"
+            },
+            {
+                title: "Tears of Steel",
+                infoHash: "6a9759bffd5c0af65319979fb7832189f4e3c700",
+                thumbnail: "🤖",
+                size: "1.24 GB",
+                description: "Sci-fi short film by Blender Foundation"
+            },
+            {
+                title: "Cosmos Laundromat",
+                infoHash: "c9e15763f722f23e98a29decdfae341b98d53056",
+                thumbnail: "🐑",
+                size: "690 MB",
+                description: "Animated short about a suicidal sheep"
+            },
+            {
+                title: "Sample Video",
+                infoHash: "08ada5a7a6183aae1e09d831df6748d566095a10",
+                thumbnail: "📹",
+                size: "Unknown",
+                description: "Test video content"
+            }
+        ];
+        
+        // Track loading states
+        const loadingStates = {};
+        
+        // Initialize the app
+        function init() {
+            renderVideoGrid();
+        }
+        
+        // Render video grid
+        function renderVideoGrid() {
+            const grid = document.getElementById('videoGrid');
+            grid.innerHTML = videos.map((video, index) => `
+                <div class="video-card" data-index="${index}">
+                    <div class="video-thumbnail">${video.thumbnail}</div>
+                    <div class="video-info">
+                        <div class="video-title">
+                            ${video.title}
+                            <span class="status ${loadingStates[video.infoHash] || ''}" id="status-${index}">
+                                ${loadingStates[video.infoHash] || ''}
+                            </span>
+                        </div>
+                        <div class="video-details">Size: ${video.size}</div>
+                        <div class="video-details">${video.description}</div>
+                        <button class="play-button" onclick="playVideo(${index})" id="play-${index}">
+                            Play Video
+                        </button>
+                    </div>
+                </div>
+            `).join('');
+        }
+        
+        // Play video function
+        async function playVideo(index) {
+            const video = videos[index];
+            const playButton = document.getElementById(`play-${index}`);
+            const statusSpan = document.getElementById(`status-${index}`);
+            
+            // Update UI
+            playButton.disabled = true;
+            playButton.textContent = 'Loading...';
+            statusSpan.className = 'status loading';
+            statusSpan.textContent = 'loading';
+            
+            try {
+                // Step 1: Get magnet link from Torrentio
+                console.log('Getting magnet link for:', video.infoHash);
+                const magnetResponse = await fetch(`${TORRENTIO_URL}/api/torrent/${video.infoHash}/magnet`);
+                
+                if (!magnetResponse.ok) {
+                    throw new Error('Failed to get magnet link');
+                }
+                
+                const { magnetLink } = await magnetResponse.json();
+                console.log('Got magnet link');
+                
+                // Step 2: Add to WebTorrent
+                console.log('Adding to WebTorrent...');
+                const addResponse = await fetch(`${WEBTORRENT_URL}/add`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ magnet: magnetLink })
+                });
+                
+                if (!addResponse.ok) {
+                    throw new Error('Failed to add torrent');
+                }
+                
+                const torrentData = await addResponse.json();
+                console.log('Torrent added:', torrentData);
+                
+                // Update status
+                statusSpan.className = 'status ready';
+                statusSpan.textContent = 'ready';
+                loadingStates[video.infoHash] = 'ready';
+                
+                // Step 3: Open player with stream URL
+                if (torrentData.videoFile) {
+                    openPlayer(video.title, torrentData.videoFile.streamUrl);
+                } else if (torrentData.allFiles && torrentData.allFiles.length > 0) {
+                    // If no video file found, try the first file
+                    openPlayer(video.title, torrentData.allFiles[0].streamUrl);
+                } else {
+                    throw new Error('No streamable files found');
+                }
+                
+            } catch (error) {
+                console.error('Error:', error);
+                alert(`Error: ${error.message}`);
+                statusSpan.className = 'status';
+                statusSpan.textContent = '';
+            } finally {
+                playButton.disabled = false;
+                playButton.textContent = 'Play Video';
+            }
+        }
+        
+        // Open video player
+        function openPlayer(title, streamUrl) {
+            const modal = document.getElementById('playerModal');
+            const player = document.getElementById('videoPlayer');
+            const titleElement = document.getElementById('playerTitle');
+            const loading = document.getElementById('loadingMessage');
+            
+            // Set title
+            titleElement.textContent = title;
+            
+            // Show modal
+            modal.classList.add('active');
+            
+            // Set video source
+            player.src = streamUrl;
+            loading.style.display = 'block';
+            
+            // Handle video events
+            player.onloadeddata = () => {
+                loading.style.display = 'none';
+                player.play().catch(e => {
+                    console.log('Autoplay prevented:', e);
+                });
+            };
+            
+            player.onerror = (e) => {
+                loading.innerHTML = '<div class="error">Error loading video. The torrent might still be downloading.</div>';
+            };
+        }
+        
+        // Close player
+        function closePlayer() {
+            const modal = document.getElementById('playerModal');
+            const player = document.getElementById('videoPlayer');
+            
+            modal.classList.remove('active');
+            player.pause();
+            player.src = '';
+        }
+        
+        // Close modal on background click
+        document.getElementById('playerModal').addEventListener('click', (e) => {
+            if (e.target === e.currentTarget) {
+                closePlayer();
+            }
+        });
+        
+        // Initialize app
+        init();
+    </script>
+</body>
+</html> 
