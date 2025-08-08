@@ -18,40 +18,50 @@ function findVideoFile(torrent) {
 }
 
 // Get torrent info endpoint
-app.get("/info", async (req, res) => {
+app.get("/info", (req, res) => {
   const magnet = decodeURIComponent(req.query.magnet || "").trim();
   
   if (!magnet || !magnet.startsWith("magnet:?xt=urn:btih:")) {
     return res.status(400).json({ error: "Invalid magnet link" });
   }
 
-  try {
-    // Check if torrent already exists
-    let torrent = client.get(magnet);
-    
-    if (!torrent) {
-      // Add the torrent and wait for it to be ready
-      torrent = await new Promise((resolve, reject) => {
-        const timeoutId = setTimeout(() => {
-          reject(new Error('Timeout waiting for torrent metadata'));
-        }, 30000);
+  // Check if torrent already exists
+  let torrent = client.get(magnet);
+  
+  if (torrent) {
+    // Return existing torrent info
+    const files = torrent.files.map((file, index) => ({
+      index,
+      name: file.name,
+      size: file.length,
+      path: file.path
+    }));
 
-        client.add(magnet, {
-          announce: [
-            "udp://tracker.opentrackr.org:1337/announce",
-            "udp://tracker.openbittorrent.com:6969/announce",
-            "udp://tracker.torrent.eu.org:451/announce",
-            "udp://exodus.desync.com:6969/announce",
-            "udp://tracker.tiny-vps.com:6969/announce"
-          ]
-        }, (torrent) => {
-          clearTimeout(timeoutId);
-          // Torrent is ready when callback is called
-          resolve(torrent);
-        });
-      });
-    }
+    return res.json({
+      name: torrent.name,
+      infoHash: torrent.infoHash,
+      length: torrent.length,
+      files: files,
+      peers: torrent.numPeers || 0,
+      downloaded: torrent.downloaded || 0,
+      uploaded: torrent.uploaded || 0,
+      downloadSpeed: torrent.downloadSpeed || 0,
+      uploadSpeed: torrent.uploadSpeed || 0,
+      progress: torrent.progress || 0,
+      ratio: torrent.ratio || 0
+    });
+  }
 
+  // Add new torrent
+  client.add(magnet, {
+    announce: [
+      "udp://tracker.opentrackr.org:1337/announce",
+      "udp://tracker.openbittorrent.com:6969/announce",
+      "udp://tracker.torrent.eu.org:451/announce",
+      "udp://exodus.desync.com:6969/announce",
+      "udp://tracker.tiny-vps.com:6969/announce"
+    ]
+  }, (torrent) => {
     // Get torrent info
     const files = torrent.files.map((file, index) => ({
       index,
@@ -73,11 +83,7 @@ app.get("/info", async (req, res) => {
       progress: torrent.progress || 0,
       ratio: torrent.ratio || 0
     });
-
-  } catch (error) {
-    console.error('Error getting torrent info:', error);
-    res.status(500).json({ error: error.message });
-  }
+  });
 });
 
 // Stream video endpoint with range support
@@ -144,40 +150,59 @@ app.get("/stream/:infoHash/:fileIndex", (req, res) => {
   stream.pipe(res);
 });
 
-// Add torrent and get streaming URL
-app.post("/add", async (req, res) => {
+// Add torrent and get streaming URL (POST)
+app.post("/add", (req, res) => {
   const { magnet } = req.body;
   
   if (!magnet || !magnet.startsWith("magnet:?xt=urn:btih:")) {
     return res.status(400).json({ error: "Invalid magnet link" });
   }
 
-  try {
-    // Check if torrent already exists
-    let torrent = client.get(magnet);
+  // Check if torrent already exists
+  let torrent = client.get(magnet);
+  
+  if (torrent) {
+    // Return existing torrent
+    const videoFile = findVideoFile(torrent);
     
-    if (!torrent) {
-      // Add the torrent using callback
-      torrent = await new Promise((resolve, reject) => {
-        const timeoutId = setTimeout(() => {
-          reject(new Error('Timeout waiting for torrent metadata'));
-        }, 30000);
-
-        client.add(magnet, {
-          announce: [
-            "udp://tracker.opentrackr.org:1337/announce",
-            "udp://tracker.openbittorrent.com:6969/announce",
-            "udp://tracker.torrent.eu.org:451/announce",
-            "udp://exodus.desync.com:6969/announce",
-            "udp://tracker.tiny-vps.com:6969/announce"
-          ]
-        }, (torrent) => {
-          clearTimeout(timeoutId);
-          resolve(torrent);
-        });
+    if (!videoFile) {
+      return res.status(404).json({ 
+        error: "No video file found",
+        files: torrent.files.map(f => f.name)
       });
     }
 
+    const fileIndex = torrent.files.indexOf(videoFile);
+    const streamUrl = `http://localhost:${PORT}/stream/${torrent.infoHash}/${fileIndex}`;
+
+    return res.json({
+      infoHash: torrent.infoHash,
+      name: torrent.name,
+      videoFile: {
+        index: fileIndex,
+        name: videoFile.name,
+        size: videoFile.length,
+        streamUrl: streamUrl
+      },
+      allFiles: torrent.files.map((file, index) => ({
+        index,
+        name: file.name,
+        size: file.length,
+        streamUrl: `http://localhost:${PORT}/stream/${torrent.infoHash}/${index}`
+      }))
+    });
+  }
+
+  // Add new torrent
+  client.add(magnet, {
+    announce: [
+      "udp://tracker.opentrackr.org:1337/announce",
+      "udp://tracker.openbittorrent.com:6969/announce",
+      "udp://tracker.torrent.eu.org:451/announce",
+      "udp://exodus.desync.com:6969/announce",
+      "udp://tracker.tiny-vps.com:6969/announce"
+    ]
+  }, (torrent) => {
     // Find video file
     const videoFile = findVideoFile(torrent);
     
@@ -207,47 +232,54 @@ app.post("/add", async (req, res) => {
         streamUrl: `http://localhost:${PORT}/stream/${torrent.infoHash}/${index}`
       }))
     });
-
-  } catch (error) {
-    console.error('Error adding torrent:', error);
-    res.status(500).json({ error: error.message });
-  }
+  });
 });
 
 // Simple GET endpoint for adding torrents (easier for testing)
-app.get("/add", async (req, res) => {
+app.get("/add", (req, res) => {
   const magnet = decodeURIComponent(req.query.magnet || "").trim();
   
   if (!magnet || !magnet.startsWith("magnet:?xt=urn:btih:")) {
     return res.status(400).json({ error: "Invalid magnet link. Use ?magnet=..." });
   }
 
-  try {
-    // Check if torrent already exists
-    let torrent = client.get(magnet);
-    
-    if (!torrent) {
-      // Add the torrent using callback
-      torrent = await new Promise((resolve, reject) => {
-        const timeoutId = setTimeout(() => {
-          reject(new Error('Timeout waiting for torrent metadata'));
-        }, 30000);
+  // Check if torrent already exists
+  let torrent = client.get(magnet);
+  
+  if (torrent) {
+    // Return existing torrent info
+    const videoFile = findVideoFile(torrent);
+    const fileIndex = videoFile ? torrent.files.indexOf(videoFile) : 0;
+    const file = videoFile || torrent.files[0];
 
-        client.add(magnet, {
-          announce: [
-            "udp://tracker.opentrackr.org:1337/announce",
-            "udp://tracker.openbittorrent.com:6969/announce",
-            "udp://tracker.torrent.eu.org:451/announce",
-            "udp://exodus.desync.com:6969/announce",
-            "udp://tracker.tiny-vps.com:6969/announce"
-          ]
-        }, (torrent) => {
-          clearTimeout(timeoutId);
-          resolve(torrent);
-        });
+    if (file) {
+      const streamUrl = `http://localhost:${PORT}/stream/${torrent.infoHash}/${fileIndex}`;
+      return res.json({
+        success: true,
+        infoHash: torrent.infoHash,
+        name: torrent.name,
+        file: {
+          index: fileIndex,
+          name: file.name,
+          size: file.length,
+          streamUrl: streamUrl
+        }
       });
+    } else {
+      return res.status(404).json({ error: "No files found in torrent" });
     }
+  }
 
+  // Add new torrent
+  client.add(magnet, {
+    announce: [
+      "udp://tracker.opentrackr.org:1337/announce",
+      "udp://tracker.openbittorrent.com:6969/announce",
+      "udp://tracker.torrent.eu.org:451/announce",
+      "udp://exodus.desync.com:6969/announce",
+      "udp://tracker.tiny-vps.com:6969/announce"
+    ]
+  }, (torrent) => {
     // Find video file
     const videoFile = findVideoFile(torrent);
     const fileIndex = videoFile ? torrent.files.indexOf(videoFile) : 0;
@@ -269,11 +301,7 @@ app.get("/add", async (req, res) => {
     } else {
       res.status(404).json({ error: "No files found in torrent" });
     }
-
-  } catch (error) {
-    console.error('Error adding torrent:', error);
-    res.status(500).json({ error: error.message });
-  }
+  });
 });
 
 // Remove torrent
