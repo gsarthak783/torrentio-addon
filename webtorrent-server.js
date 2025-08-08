@@ -17,43 +17,6 @@ function findVideoFile(torrent) {
   });
 }
 
-// Helper function to wait for torrent metadata
-function waitForTorrent(torrent) {
-  return new Promise((resolve, reject) => {
-    // Check if torrent is already ready
-    if (torrent.ready) {
-      resolve(torrent);
-      return;
-    }
-
-    // Set a timeout
-    const timeout = setTimeout(() => {
-      reject(new Error('Timeout waiting for torrent metadata'));
-    }, 30000);
-
-    // Wait for torrent to be ready
-    const onReady = () => {
-      clearTimeout(timeout);
-      resolve(torrent);
-    };
-
-    const onError = (err) => {
-      clearTimeout(timeout);
-      reject(err);
-    };
-
-    // WebTorrent uses 'ready' and 'error' events
-    torrent.on('ready', onReady);
-    torrent.on('error', onError);
-
-    // Also check for metadata event (some versions use this)
-    torrent.on('metadata', () => {
-      clearTimeout(timeout);
-      resolve(torrent);
-    });
-  });
-}
-
 // Get torrent info endpoint
 app.get("/info", async (req, res) => {
   const magnet = decodeURIComponent(req.query.magnet || "").trim();
@@ -67,20 +30,27 @@ app.get("/info", async (req, res) => {
     let torrent = client.get(magnet);
     
     if (!torrent) {
-      // Add the torrent
-      torrent = client.add(magnet, {
-        announce: [
-          "udp://tracker.opentrackr.org:1337/announce",
-          "udp://tracker.openbittorrent.com:6969/announce",
-          "udp://tracker.torrent.eu.org:451/announce",
-          "udp://exodus.desync.com:6969/announce",
-          "udp://tracker.tiny-vps.com:6969/announce"
-        ]
+      // Add the torrent and wait for it to be ready
+      torrent = await new Promise((resolve, reject) => {
+        const timeoutId = setTimeout(() => {
+          reject(new Error('Timeout waiting for torrent metadata'));
+        }, 30000);
+
+        client.add(magnet, {
+          announce: [
+            "udp://tracker.opentrackr.org:1337/announce",
+            "udp://tracker.openbittorrent.com:6969/announce",
+            "udp://tracker.torrent.eu.org:451/announce",
+            "udp://exodus.desync.com:6969/announce",
+            "udp://tracker.tiny-vps.com:6969/announce"
+          ]
+        }, (torrent) => {
+          clearTimeout(timeoutId);
+          // Torrent is ready when callback is called
+          resolve(torrent);
+        });
       });
     }
-
-    // Wait for metadata
-    await waitForTorrent(torrent);
 
     // Get torrent info
     const files = torrent.files.map((file, index) => ({
@@ -95,13 +65,13 @@ app.get("/info", async (req, res) => {
       infoHash: torrent.infoHash,
       length: torrent.length,
       files: files,
-      peers: torrent.numPeers,
-      downloaded: torrent.downloaded,
-      uploaded: torrent.uploaded,
-      downloadSpeed: torrent.downloadSpeed,
-      uploadSpeed: torrent.uploadSpeed,
-      progress: torrent.progress,
-      ratio: torrent.ratio
+      peers: torrent.numPeers || 0,
+      downloaded: torrent.downloaded || 0,
+      uploaded: torrent.uploaded || 0,
+      downloadSpeed: torrent.downloadSpeed || 0,
+      uploadSpeed: torrent.uploadSpeed || 0,
+      progress: torrent.progress || 0,
+      ratio: torrent.ratio || 0
     });
 
   } catch (error) {
@@ -187,20 +157,26 @@ app.post("/add", async (req, res) => {
     let torrent = client.get(magnet);
     
     if (!torrent) {
-      // Add the torrent
-      torrent = client.add(magnet, {
-        announce: [
-          "udp://tracker.opentrackr.org:1337/announce",
-          "udp://tracker.openbittorrent.com:6969/announce",
-          "udp://tracker.torrent.eu.org:451/announce",
-          "udp://exodus.desync.com:6969/announce",
-          "udp://tracker.tiny-vps.com:6969/announce"
-        ]
+      // Add the torrent using callback
+      torrent = await new Promise((resolve, reject) => {
+        const timeoutId = setTimeout(() => {
+          reject(new Error('Timeout waiting for torrent metadata'));
+        }, 30000);
+
+        client.add(magnet, {
+          announce: [
+            "udp://tracker.opentrackr.org:1337/announce",
+            "udp://tracker.openbittorrent.com:6969/announce",
+            "udp://tracker.torrent.eu.org:451/announce",
+            "udp://exodus.desync.com:6969/announce",
+            "udp://tracker.tiny-vps.com:6969/announce"
+          ]
+        }, (torrent) => {
+          clearTimeout(timeoutId);
+          resolve(torrent);
+        });
       });
     }
-
-    // Wait for metadata
-    await waitForTorrent(torrent);
 
     // Find video file
     const videoFile = findVideoFile(torrent);
@@ -251,20 +227,26 @@ app.get("/add", async (req, res) => {
     let torrent = client.get(magnet);
     
     if (!torrent) {
-      // Add the torrent
-      torrent = client.add(magnet, {
-        announce: [
-          "udp://tracker.opentrackr.org:1337/announce",
-          "udp://tracker.openbittorrent.com:6969/announce",
-          "udp://tracker.torrent.eu.org:451/announce",
-          "udp://exodus.desync.com:6969/announce",
-          "udp://tracker.tiny-vps.com:6969/announce"
-        ]
+      // Add the torrent using callback
+      torrent = await new Promise((resolve, reject) => {
+        const timeoutId = setTimeout(() => {
+          reject(new Error('Timeout waiting for torrent metadata'));
+        }, 30000);
+
+        client.add(magnet, {
+          announce: [
+            "udp://tracker.opentrackr.org:1337/announce",
+            "udp://tracker.openbittorrent.com:6969/announce",
+            "udp://tracker.torrent.eu.org:451/announce",
+            "udp://exodus.desync.com:6969/announce",
+            "udp://tracker.tiny-vps.com:6969/announce"
+          ]
+        }, (torrent) => {
+          clearTimeout(timeoutId);
+          resolve(torrent);
+        });
       });
     }
-
-    // Wait for metadata
-    await waitForTorrent(torrent);
 
     // Find video file
     const videoFile = findVideoFile(torrent);
@@ -312,16 +294,16 @@ app.delete("/remove/:infoHash", (req, res) => {
 app.get("/torrents", (req, res) => {
   const torrents = client.torrents.map(torrent => ({
     infoHash: torrent.infoHash,
-    name: torrent.name,
-    progress: torrent.progress,
-    downloadSpeed: torrent.downloadSpeed,
-    uploadSpeed: torrent.uploadSpeed,
-    peers: torrent.numPeers,
-    ratio: torrent.ratio,
-    downloaded: torrent.downloaded,
-    uploaded: torrent.uploaded,
-    length: torrent.length,
-    ready: torrent.ready
+    name: torrent.name || 'Unknown',
+    progress: torrent.progress || 0,
+    downloadSpeed: torrent.downloadSpeed || 0,
+    uploadSpeed: torrent.uploadSpeed || 0,
+    peers: torrent.numPeers || 0,
+    ratio: torrent.ratio || 0,
+    downloaded: torrent.downloaded || 0,
+    uploaded: torrent.uploaded || 0,
+    length: torrent.length || 0,
+    ready: torrent.ready || false
   }));
 
   res.json({ torrents });
@@ -331,10 +313,10 @@ app.get("/torrents", (req, res) => {
 app.get("/stats", (req, res) => {
   res.json({
     torrents: client.torrents.length,
-    downloadSpeed: client.downloadSpeed,
-    uploadSpeed: client.uploadSpeed,
-    progress: client.progress,
-    ratio: client.ratio
+    downloadSpeed: client.downloadSpeed || 0,
+    uploadSpeed: client.uploadSpeed || 0,
+    progress: client.progress || 0,
+    ratio: client.ratio || 0
   });
 });
 
