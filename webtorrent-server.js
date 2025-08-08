@@ -17,6 +17,43 @@ function findVideoFile(torrent) {
   });
 }
 
+// Helper function to wait for torrent metadata
+function waitForTorrent(torrent) {
+  return new Promise((resolve, reject) => {
+    // Check if torrent is already ready
+    if (torrent.ready) {
+      resolve(torrent);
+      return;
+    }
+
+    // Set a timeout
+    const timeout = setTimeout(() => {
+      reject(new Error('Timeout waiting for torrent metadata'));
+    }, 30000);
+
+    // Wait for torrent to be ready
+    const onReady = () => {
+      clearTimeout(timeout);
+      resolve(torrent);
+    };
+
+    const onError = (err) => {
+      clearTimeout(timeout);
+      reject(err);
+    };
+
+    // WebTorrent uses 'ready' and 'error' events
+    torrent.on('ready', onReady);
+    torrent.on('error', onError);
+
+    // Also check for metadata event (some versions use this)
+    torrent.on('metadata', () => {
+      clearTimeout(timeout);
+      resolve(torrent);
+    });
+  });
+}
+
 // Get torrent info endpoint
 app.get("/info", async (req, res) => {
   const magnet = decodeURIComponent(req.query.magnet || "").trim();
@@ -43,15 +80,7 @@ app.get("/info", async (req, res) => {
     }
 
     // Wait for metadata
-    await new Promise((resolve, reject) => {
-      if (torrent.ready) {
-        resolve();
-      } else {
-        torrent.once('ready', resolve);
-        torrent.once('error', reject);
-        setTimeout(() => reject(new Error('Timeout waiting for metadata')), 30000);
-      }
-    });
+    await waitForTorrent(torrent);
 
     // Get torrent info
     const files = torrent.files.map((file, index) => ({
@@ -171,15 +200,7 @@ app.post("/add", async (req, res) => {
     }
 
     // Wait for metadata
-    await new Promise((resolve, reject) => {
-      if (torrent.ready) {
-        resolve();
-      } else {
-        torrent.once('ready', resolve);
-        torrent.once('error', reject);
-        setTimeout(() => reject(new Error('Timeout waiting for metadata')), 30000);
-      }
-    });
+    await waitForTorrent(torrent);
 
     // Find video file
     const videoFile = findVideoFile(torrent);
@@ -217,6 +238,62 @@ app.post("/add", async (req, res) => {
   }
 });
 
+// Simple GET endpoint for adding torrents (easier for testing)
+app.get("/add", async (req, res) => {
+  const magnet = decodeURIComponent(req.query.magnet || "").trim();
+  
+  if (!magnet || !magnet.startsWith("magnet:?xt=urn:btih:")) {
+    return res.status(400).json({ error: "Invalid magnet link. Use ?magnet=..." });
+  }
+
+  try {
+    // Check if torrent already exists
+    let torrent = client.get(magnet);
+    
+    if (!torrent) {
+      // Add the torrent
+      torrent = client.add(magnet, {
+        announce: [
+          "udp://tracker.opentrackr.org:1337/announce",
+          "udp://tracker.openbittorrent.com:6969/announce",
+          "udp://tracker.torrent.eu.org:451/announce",
+          "udp://exodus.desync.com:6969/announce",
+          "udp://tracker.tiny-vps.com:6969/announce"
+        ]
+      });
+    }
+
+    // Wait for metadata
+    await waitForTorrent(torrent);
+
+    // Find video file
+    const videoFile = findVideoFile(torrent);
+    const fileIndex = videoFile ? torrent.files.indexOf(videoFile) : 0;
+    const file = videoFile || torrent.files[0];
+
+    if (file) {
+      const streamUrl = `http://localhost:${PORT}/stream/${torrent.infoHash}/${fileIndex}`;
+      res.json({
+        success: true,
+        infoHash: torrent.infoHash,
+        name: torrent.name,
+        file: {
+          index: fileIndex,
+          name: file.name,
+          size: file.length,
+          streamUrl: streamUrl
+        }
+      });
+    } else {
+      res.status(404).json({ error: "No files found in torrent" });
+    }
+
+  } catch (error) {
+    console.error('Error adding torrent:', error);
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // Remove torrent
 app.delete("/remove/:infoHash", (req, res) => {
   const { infoHash } = req.params;
@@ -243,7 +320,8 @@ app.get("/torrents", (req, res) => {
     ratio: torrent.ratio,
     downloaded: torrent.downloaded,
     uploaded: torrent.uploaded,
-    length: torrent.length
+    length: torrent.length,
+    ready: torrent.ready
   }));
 
   res.json({ torrents });
@@ -260,12 +338,30 @@ app.get("/stats", (req, res) => {
   });
 });
 
+// Root endpoint
+app.get("/", (req, res) => {
+  res.json({
+    service: "WebTorrent Streaming Server",
+    version: "1.0.0",
+    endpoints: {
+      "POST /add": "Add torrent and get streaming URL",
+      "GET /add?magnet=...": "Add torrent via GET request",
+      "GET /info?magnet=...": "Get torrent information",
+      "GET /stream/:hash/:index": "Stream a specific file",
+      "GET /torrents": "List all active torrents",
+      "GET /stats": "Get client statistics",
+      "DELETE /remove/:hash": "Remove a torrent"
+    }
+  });
+});
+
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`🎬 WebTorrent Streaming Server running at http://localhost:${PORT}`);
   console.log(`
 Available endpoints:
   POST   /add                     - Add torrent and get streaming URL
+  GET    /add?magnet=...         - Add torrent via GET request  
   GET    /info?magnet=...        - Get torrent information
   GET    /stream/:hash/:index    - Stream a specific file
   GET    /torrents               - List all active torrents
